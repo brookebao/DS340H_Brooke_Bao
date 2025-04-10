@@ -8,7 +8,7 @@ File/Directory | Description
 ------------- | -------------
 data/raw_bluebike | Original datasets from the bluebikes website
 data/bluebikeSummers.csv | Cleaned dataset for bluebike trips
-data/bluebikeStations.csv | Cleaned dataset with bike flows for stations
+data/stationdata.csv | Cleaned dataset with bike flows for stations
 1_bluebiketrips_datacleaning.R | R script used to clean bluebike trip data
 2_cluster_python.iypnb | Python used to merge trip data with station data and cluster the station data
 3_predictions.R | R used to see it station attributes can predict which group station is clustered into
