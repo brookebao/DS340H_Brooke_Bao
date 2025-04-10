@@ -1,0 +1,79 @@
+---
+title: "DS350H_DataCleaning"
+output:
+  word_document: default
+date: "2025-03-06"
+---
+
+RQ: “Do Bluebikes tend to accumulate at certain stations and remain there for extended periods?” 
+
+```{r setup}
+remove(list=ls())
+cat('\014')
+
+# Load packages
+packs <- c('tidyverse', 'ggplot2', 'dplyr')
+lapply(packs, require, character.only = TRUE)
+setwd("C:/Users/baobr/OneDrive/Desktop/DS350H/FinalProject/Data")
+
+#Load data
+#list of files
+file_list <- list.files(path="C:/Users/baobr/OneDrive/Desktop/DS350H/FinalProject/data/raw_bluebike/bluebike_months")
+
+#data frame for all files
+df_22 <- data.frame()
+df_23 <- data.frame()
+df_24 <- data.frame()
+
+#had to specify columns to get rid of the total column
+for (i in 1:length(file_list)){
+  temp_data <- read_csv(file.path('raw_bluebike/bluebike_months', file_list[i]))
+  if (substr(file_list[i], 1, 4) == "2024"){
+    temp_data$year <- '2024' #create column indicating which data file it's from
+    df_24 <- rbind(df_24, temp_data) 
+  }
+  else if (substr(file_list[i], 1, 4) == "2023"){
+    temp_data$year <- '2023'
+    df_23 <- rbind(df_23, temp_data) 
+  }
+  else if (substr(file_list[i], 1, 4) == "2022"){
+    temp_data$year <- '2022'
+    df_22 <- rbind(df_22, temp_data) 
+  }
+}
+```
+
+```{r explore}
+#same structure can bind
+bluebike <- rbind(df_23, df_24)
+
+#has slightly different variable names and structure
+df_22 <- df_22 %>% rename(start_station_name = 'start station name', start_station_id = 'start station id', started_at = starttime, ended_at = stoptime, start_lat = 'start station latitude', start_lng = 'start station longitude', end_station_id = 'end station id', end_station_name = 'end station name', end_lat = 'end station latitude', end_lng = 'end station longitude', member_casual = usertype, postal_code= 'postal code')
+df_22$year <- '2022'
+#member_casual and user type same columns 22 and 23/24 but 23/24 uses member/casual and 22 uses subscriber/customer
+df_22 <- df_22 %>%
+  mutate(member_casual = recode(member_casual, `Subscriber` = "member", `Customer` = "casual"))
+
+
+#2022 has bike id + postal code, 23/24 has ride id + rideble type...but not the same thing, remove both because not relavent
+#df_22 <- df_22 %>% select(-bikeid, -postal_code)
+#bluebike <- bluebike %>% select(-ride_id, -rideable_type)
+
+df_22$tripduration <- as.numeric(round(difftime(df_22$ended_at, df_22$started_at, units = "min")))
+#bluebike$tripduration <- as.numeric(round(difftime(bluebike$ended_at, bluebike$started_at, units = "min")))
+
+#bind the two, make some stuff factors
+#bluebike <- rbind(bluebike, df_22)
+#bluebike$start_station_id <- as.factor(bluebike$start_station_id)
+#bluebike$end_station_id <- as.factor(bluebike$end_station_id)
+df_22$postal_code <- as.factor(df_22$postal_code)
+df_22$start_station_id <- as.factor(bluebike$start_station_id)
+df_22$end_station_id <- as.factor(bluebike$end_station_id)
+
+#write.csv(bluebike,"bluebikeSummer.csv", row.names= FALSE) #taking too long
+library(data.table)
+fwrite(df_22, "bluebikeSummers.csv")
+
+```
+
+

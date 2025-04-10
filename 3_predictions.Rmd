@@ -1,0 +1,166 @@
+---
+title: "Final_Project"
+author: "Brooke Bao"
+date: "2025-03-13"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+remove(list=ls())
+cat('\014')
+
+# Load packages
+packs <- c('tidyverse', 'ggplot2', 'dplyr', 'lubridate', 'leaps', 'rpart', 'rpart.plot', 'party', 'randomForest')
+lapply(packs, require, character.only = TRUE)
+
+setwd("C:/Users/baobr/OneDrive/Desktop/DS350H/FinalProject/Data")
+df <- read_csv("stationdata.csv")
+```
+
+
+## Tree
+
+
+```{r tree}
+#turning station stuff in factors
+df$station_id <- as.factor(df$station_id)
+df$cluster <- factor(df$cluster, levels = c(0, 1, 2), labels = c("Low", "High", "Medium"))
+df$seasonal_status <- as.factor(df$seasonal_status)
+df$municipality <- as.factor(df$municipality)
+
+sum(is.na(df)) #no nas!
+table(df$cluster)
+
+#drop high becuase are outliers
+df <- df %>% 
+  filter(cluster != "High")
+df$cluster <- droplevels(df$cluster) #drop levels becuase even if get rid of high rows, high level still there
+print(df %>% filter(if_any(everything(), is.na)))
+
+#regular tree
+tree <- ctree(cluster ~ avg_net_flow  + seasonal_status + municipality + total_docks, data = df)
+plot(tree, main = "Conditional Inference Tree")
+```
+
+## Random Forest
+
+```{r Random Forest}
+set.seed(123)  #so can reproduce
+
+#randomForestModel <- randomForest(cluster ~ avg_net_flow  + seasonal_status + municipality + total_docks, data = df, importance = TRUE, ntree = 500)
+#print(randomForestModel)
+
+#use this model because above model includes avg net flow which is what we used to create these clusters
+randomForestModel1 <- randomForest(cluster ~ seasonal_status + municipality + total_docks, data = df, importance = TRUE, ntree = 500)
+print(randomForestModel1)
+
+#varImpPlot(randomForestModel, main = "Variable Importance for RF with Average Net Flow")
+#print only mean decrease accuracy
+varImpPlot(randomForestModel1, type = 1, main = "Variable Importance from Random Forest")
+```
+
+## Tuning
+
+To tune our model, we will consider different thresholds.
+
+```{r sequential}
+#Y.hat = predict(randomForestModel1,type="class")
+#table(Y.hat, df$cluster)
+#tail(Y.hat)
+p.hat <- predict(randomForestModel1, type = "prob")
+#head(p.hat)
+#summary(p.hat)
+
+#testing a proportion = to propotion in our data that is medium
+prop_med <- sum(df$cluster == "Medium")/nrow(df)
+Y.hat.prop <- ifelse(p.hat[, "Medium"] > prop_med, "Medium", "Low")
+#table(Y.hat.70)
+#tail(p.hat)
+table(Predicted = Y.hat.prop, Actual = df$cluster) #confusion matrix
+
+thresholds <- seq(0.5, 0.99, by = 0.05)
+results <- data.frame(
+  threshold = numeric(),
+  low_accuracy = numeric(),
+  medium_accuracy = numeric(),
+  overall_accuracy = numeric()
+)
+
+for (t in thresholds) {
+  y.hat <- ifelse(p.hat[, "Medium"] > t, "Medium", "Low")
+  cm <- table(y.hat, df$cluster)  #confusion matrix
+  print(cm)
+  #counts in the table, predicted-actual
+  #low_low <- cm["Low", "Low"]
+ # medium_low <- cm["Medium", "Low"]
+ # medium_medium <- cm["Medium", "Medium"]
+  #low_medium <- cm["Low", "Medium"]
+  #Sometimes it will predict nothign so need to put 0
+  low_low <- if ("Low" %in% rownames(cm) && "Low" %in% colnames(cm)) cm["Low", "Low"] else 0
+medium_low <- if ("Medium" %in% rownames(cm) && "Low" %in% colnames(cm)) cm["Medium", "Low"] else 0
+medium_medium <- if ("Medium" %in% rownames(cm) && "Medium" %in% colnames(cm)) cm["Medium", "Medium"] else 0
+low_medium <- if ("Low" %in% rownames(cm) && "Medium" %in% colnames(cm)) cm["Low", "Medium"] else 0
+
+  #calculating number of lows, highs, actual vs predicted
+  actual_low_total <- low_low + medium_low
+  correct_total <- low_low + medium_medium
+  actual_medium_total <- low_medium + medium_medium
+  total_rows <- nrow(df)
+  
+  #if the total is 0 put NA so won't divide by 0
+  results <- rbind(results, data.frame(
+    Threshold = t,
+    low_accuracy = ifelse(actual_low_total == 0, NA, low_low/actual_low_total),
+    medium_accuracy = ifelse(actual_medium_total == 0, NA, medium_medium/actual_medium_total),
+    overall_accuracy = correct_total / total_rows
+  ))
+  
+}
+
+results_long <- results %>%
+  pivot_longer(cols = c("low_accuracy", "medium_accuracy", "overall_accuracy"),
+               names_to = "Metric", values_to = "Accuracy")
+
+ggplot(results_long, aes(x = Threshold, y = Accuracy, color = Metric)) +
+  geom_line(size = 1) +
+  labs(title = "Accuracy for Different Thresholds",
+       x = "Threshold for Predicting 'Medium'",
+       y = "Proportion Correct",
+       color = "Metric") +
+  scale_color_manual( #need this to relable the legend...
+    values = c(
+      "low_accuracy" = "#1b9e77",
+      "medium_accuracy" = "#d95f02",
+      "overall_accuracy" = "#7570b3"
+    ),
+  labels = c(
+    "low_accuracy" = "Low-Flow \n Proportion Correct\n",
+    "medium_accuracy" = "Medium-Flow \n Proportion Correct\n",
+    "overall_accuracy" = "Overall Accuracy"
+  ))+
+  theme_minimal()
+
+```
+
+```{r cross validation}
+set.seed(123)  # for reproducibility
+
+#70% train
+train_s <- sample(nrow(df), 0.7 * nrow(df))
+train <- df[train_s, ]
+test <- df[-train_s, ]
+
+rf_model <- randomForest(
+  cluster ~ seasonal_status + municipality + total_docks,
+  data = train,
+  importance = TRUE,
+  ntree = 500
+)
+
+test$cluster <- as.factor(test$cluster)  # if needed
+predictions <- predict(rf_model, newdata = test)
+
+#confusion matrix
+table(Predicted = predictions, Actual = test$cluster)
+
+```
